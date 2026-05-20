@@ -1,4 +1,5 @@
 import { createClient } from 'redis'
+import { addOrderToBook, matchOrders } from './lib/orderfunction'
 
 const client = createClient()
 await client.connect()
@@ -17,8 +18,19 @@ while (true) {
 
     let filledQty = 0
 
-    if (type === 'limit') {}
-    if (type === 'market') {}
+    if (type === 'limit') {
+        addOrderToBook(asset, side, price, qty, userId, identifier)
+        filledQty = matchOrders(asset)
+    }
+
+    if (type === 'market') {
+        if (side === 'buy') {
+            addOrderToBook(asset, side, Infinity, qty, userId, identifier)
+        } else {
+            addOrderToBook(asset, side, 0, qty, userId, identifier)
+        }
+        filledQty = matchOrders(asset)
+    }
 
     await publisher.lPush(`response-queue-${identifier}`, JSON.stringify({
         identifier,
