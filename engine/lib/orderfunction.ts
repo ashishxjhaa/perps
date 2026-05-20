@@ -15,6 +15,20 @@ type OrderBook = {
 
 let ORDERBOOK: OrderBook = {}
 
+type AssetMap = {
+    [asset: string]: number
+}
+
+type BalanceSheet = {
+    available: { [userId: string]: AssetMap }
+    locked: { [userId: string]: AssetMap }
+}
+
+let BALANCES: BalanceSheet = {
+    available: {},
+    locked: {}
+}
+
 export function ensureAsset(asset: string): void {
     if (!ORDERBOOK[asset]) {
         ORDERBOOK[asset] = { bids: [], asks: [] }
@@ -22,7 +36,7 @@ export function ensureAsset(asset: string): void {
 }
 
 export function addOrderToBook(asset: string, side: 'buy' | 'sell', price: number, qty: number, userId: string, orderId: string): void {
-    const existAsset = ensureAsset(asset)
+    ensureAsset(asset)
 
     const order: OrderEntry = { price, qty, userId, orderId }
 
@@ -63,4 +77,32 @@ export function matchOrders(asset: string): number {
     sortOrderBook(asset)
     
     return totalFilled
+}
+
+export function checkBalance(userId: string, asset: string, amount: number): boolean {
+    if (!BALANCES.available[userId]) {
+        return false;
+    } else {
+        return (BALANCES.available[userId][asset] || 0) >= amount
+    }
+}
+
+export function lockedBalance(userId: string, asset: string, amount: number): boolean {
+    
+    if (!checkBalance(userId, asset, amount)) {
+        return false
+    }
+
+    const available = BALANCES.available[userId]
+    if (available && available[asset]) {
+        available[asset] -= amount
+    }
+
+    
+    if (!BALANCES.locked[userId]) {
+        BALANCES.locked[userId] = {}
+    }
+    
+    BALANCES.locked[userId][asset] = (BALANCES.locked[userId][asset] || 0) + amount
+    return true
 }

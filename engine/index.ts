@@ -1,5 +1,5 @@
 import { createClient } from 'redis'
-import { addOrderToBook, matchOrders } from './lib/orderfunction'
+import { addOrderToBook, lockedBalance, matchOrders } from './lib/orderfunction'
 
 const client = createClient()
 await client.connect()
@@ -17,6 +17,18 @@ while (true) {
     const { type, side, price, qty, asset, userId, identifier } = order
 
     let filledQty = 0
+
+    const lockSuccess = side === 'buy'
+        ? lockedBalance(userId, 'USDC', price * qty)
+        : lockedBalance(userId, asset, qty)
+
+    if (!lockSuccess) {
+        await publisher.lPush(`response-queue-${identifier}`, JSON.stringify({
+            identifier,
+            filledQty: 0
+        }))
+        continue  
+    }
 
     if (type === 'limit') {
         addOrderToBook(asset, side, price, qty, userId, identifier)
