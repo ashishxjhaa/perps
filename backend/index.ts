@@ -1,11 +1,19 @@
 import express from 'express'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
+import { createClient } from 'redis'
 import { signinSchema, signupSchema } from './utils/authschema'
 import { prisma } from './utils/db'
+import authMiddleware from './utils/middleware'
+import { orderSchema } from './utils/orderschmea'
+
+const client = createClient()
+await client.connect()
+
+const publisher = createClient()
+await publisher.connect()
 
 const app = express()
-
 app.use(express.json())
 
 app.post('/signup', async (req, res) => {
@@ -92,6 +100,37 @@ app.post('/signin', async (req, res) => {
             error: 'Signin Failed'
         })
     }
+})
+
+app.post('/order', authMiddleware, async (req, res) => {
+    const userId = req.userId;
+
+    const parsedResult = orderSchema.safeParse(req.body);
+    if (!parsedResult.success) {
+        return res.status(400).json({
+            error: 'All fields required'
+        })
+    }
+
+    const { type, side, price, qty, asset } = parsedResult.data;
+
+    let identifier = Math.random()
+
+    await client.lPush('incoming-order', JSON.stringify({
+        type, side, price, qty, asset, userId, identifier
+    }))
+
+    const returnedData = await publisher.brPop(`response-queue-${identifier}`, 0)
+    if (!returnedData) {
+        return res.status(500).json({ error: 'No response from engine' })
+    }
+
+    const responseData = JSON.parse(returnedData.element)
+
+    res.status(201).json({
+        message: 'order placed',
+        filledQty: responseData.filledQty
+    })
 })
 
 app.listen(3000, () => {
