@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "perps",
+      "name": "engine",
       "dependencies": {
         "redis": "^5.12.1",
       },
