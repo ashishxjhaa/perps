@@ -8,8 +8,8 @@ type OrderEntry = {
 
 type OrderBook = {
     [asset: string]: {
-        bids: OrderEntry[]
-        asks: OrderEntry[]
+        longs: OrderEntry[]
+        shorts: OrderEntry[]
     }
 }
 
@@ -29,49 +29,63 @@ let BALANCES: BalanceSheet = {
     locked: {}
 }
 
-export function ensureAsset(asset: string): void {
-    if (!ORDERBOOK[asset]) {
-        ORDERBOOK[asset] = { bids: [], asks: [] }
+
+type Position = {
+    [ userId: string ]: { 
+        [ asset: string ]: { side: 'long' | 'short', entryPrice: number, qty: number }
     }
 }
 
-export function addOrderToBook(asset: string, side: 'buy' | 'sell', price: number, qty: number, userId: string, orderId: string): void {
+let POSITIONS: Position = {}
+
+
+export function ensureAsset(asset: string): void {
+    if (!ORDERBOOK[asset]) {
+        ORDERBOOK[asset] = { longs: [], shorts: [] }
+    }
+}
+
+export function addOrderToBook(asset: string, side: 'long' | 'short', price: number, qty: number, userId: string, orderId: string): void {
     ensureAsset(asset)
 
     const order: OrderEntry = { price, qty, userId, orderId }
 
-    if (side === 'buy') {
-        ORDERBOOK[asset]?.bids.push( order )
+    if (side === 'long') {
+        ORDERBOOK[asset]?.longs.push( order )
     } else {
-        ORDERBOOK[asset]?.asks.push( order )
+        ORDERBOOK[asset]?.shorts.push( order )
     }
     
 }
 
 export function sortOrderBook(asset: string): void {
-    ORDERBOOK[asset]?.bids.sort((a, b) => b.price - a.price)
-    ORDERBOOK[asset]?.asks.sort((a, b) => a.price - b.price)
+    ORDERBOOK[asset]?.longs.sort((a, b) => b.price - a.price)
+    ORDERBOOK[asset]?.shorts.sort((a, b) => a.price - b.price)
 }
 
 export function matchOrders(asset: string): number {
     let totalFilled = 0
 
     while (true) {
-        const bestBid = ORDERBOOK[asset]?.bids[0]
-        const bestAsk = ORDERBOOK[asset]?.asks[0]
+        const bestLong = ORDERBOOK[asset]?.longs[0]
+        const bestShort = ORDERBOOK[asset]?.shorts[0]
 
         // stop the loop if no match is possible
-        if (!bestBid || !bestAsk || bestBid.price < bestAsk.price) {
+        if (!bestLong || !bestShort || bestLong.price < bestShort.price) {
             break
         }
 
-        const filledQty = Math.min(bestBid.qty, bestAsk.qty)
+        const filledQty = Math.min(bestLong.qty, bestShort.qty)
+        updatePosition(bestLong.userId, asset, 'long', bestShort.price, filledQty)
+        updatePosition(bestShort.userId, asset, 'short', bestShort.price, filledQty)
+        unlockBalance(bestLong.userId, 'USDC', filledQty * bestShort.price)
+        unlockBalance(bestShort.userId, 'USDC', filledQty * bestShort.price)
         totalFilled += filledQty
-        bestBid.qty -= filledQty 
-        bestAsk.qty -= filledQty
+        bestLong.qty -= filledQty 
+        bestShort.qty -= filledQty
 
-        if (bestAsk.qty === 0) ORDERBOOK[asset]?.asks.splice(0, 1)
-        if (bestBid.qty === 0) ORDERBOOK[asset]?.bids.splice(0, 1)
+        if (bestShort.qty === 0) ORDERBOOK[asset]?.shorts.splice(0, 1)
+        if (bestLong.qty === 0) ORDERBOOK[asset]?.longs.splice(0, 1)
     }
 
     sortOrderBook(asset)
@@ -105,4 +119,29 @@ export function lockedBalance(userId: string, asset: string, amount: number): bo
     
     BALANCES.locked[userId][asset] = (BALANCES.locked[userId][asset] || 0) + amount
     return true
+}
+
+export function unlockBalance(userId: string, asset: string, amount: number): void {
+    if (BALANCES.locked[userId] && BALANCES.locked[userId][asset]) {
+        BALANCES.locked[userId][asset] -= amount
+        
+        if (!BALANCES.available[userId]) {
+            BALANCES.available[userId] = {}
+        }
+        BALANCES.available[userId][asset] = (BALANCES.available[userId][asset] || 0) + amount
+
+    }
+}
+
+export function updatePosition(userId: string, asset: string, side: 'long' | 'short', entryPrice: number, qty: number): void {
+    if (!POSITIONS[userId]) {
+        POSITIONS[userId] = {}
+    }
+
+    if (!POSITIONS[userId][asset]) {
+        POSITIONS[userId][asset] = { side, entryPrice, qty }
+    } else {
+        POSITIONS[userId][asset].qty += qty
+    }
+
 }
